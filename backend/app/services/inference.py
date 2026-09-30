@@ -3,32 +3,77 @@ import io
 import time
 import base64
 import numpy as np
-import lightgbm as lgb
 from typing import Dict, Any, List
 from PIL import Image
 
 from app.constants import CLASS_MAP, FEATURE_NAMES
 from ml.cnn_model import NumpyCNNForwardPass
 
+# Pure NumPy decision tree forward pass - eliminates libgomp.so.1 OpenMP dependency
+class NumpyLGBMForwardPass:
+    """
+    Pure NumPy forward pass for LightGBM gradient boosted trees.
+    Eliminates libgomp.so.1 (OpenMP) and LightGBM C++ binary dependency.
+    Runs in ~1ms and is 100% portable on serverless environments.
+    """
+    def __init__(self, npz_path: str):
+        data = np.load(npz_path)
+        self.roots = data['tree_roots']
+        self.feat = data['node_feature']
+        self.thresh = data['node_threshold']
+        self.left = data['node_left']
+        self.right = data['node_right']
+        self.leaf_val = data['node_leaf_val']
+        self.is_leaf = data['node_is_leaf']
+        self.feature_importance_gain = data['feature_importance']
+        self.num_trees = len(self.roots)
+
+    def predict_proba(self, x: List[float]) -> np.ndarray:
+        scores = [0.0, 0.0, 0.0, 0.0]
+        roots = self.roots
+        feat = self.feat
+        thresh = self.thresh
+        left = self.left
+        right = self.right
+        leaf_val = self.leaf_val
+        is_leaf = self.is_leaf
+
+        for i in range(self.num_trees):
+            curr = roots[i]
+            while not is_leaf[curr]:
+                curr = left[curr] if x[feat[curr]] <= thresh[curr] else right[curr]
+            scores[i % 4] += leaf_val[curr]
+
+        m = max(scores)
+        exp_s = [np.exp(s - m) for s in scores]
+        tot = sum(exp_s)
+        return np.array([s / tot for s in exp_s], dtype=np.float32)
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        if X.ndim == 1:
+            return np.array([self.predict_proba(X.tolist())], dtype=np.float32)
+        return np.array([self.predict_proba(row.tolist()) for row in X], dtype=np.float32)
+
+    def feature_importance(self, importance_type: str = 'gain') -> np.ndarray:
+        return self.feature_importance_gain
+
 # Cache models in memory
 _LGBM_MODEL = None
 _NUMPY_CNN_MODEL = None
 
 # Model directory lookup for Vercel serverless environment
-# From app/services/ -> ../../models -> backend/models/
 MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../models"))
-if not os.path.exists(os.path.join(MODELS_DIR, "lgbm_model.txt")):
-    # Fallback: repo root models/ (for Docker volume mount)
+if not os.path.exists(os.path.join(MODELS_DIR, "lgbm_trees.npz")):
     MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models"))
 
-def get_lgbm_model():
+def get_lgbm_model() -> NumpyLGBMForwardPass:
     global _LGBM_MODEL
     if _LGBM_MODEL is None:
-        model_path = os.path.join(MODELS_DIR, "lgbm_model.txt")
-        if os.path.exists(model_path):
-            _LGBM_MODEL = lgb.Booster(model_file=model_path)
+        npz_path = os.path.join(MODELS_DIR, "lgbm_trees.npz")
+        if os.path.exists(npz_path):
+            _LGBM_MODEL = NumpyLGBMForwardPass(npz_path)
         else:
-            raise FileNotFoundError(f"LightGBM model file not found at {model_path}")
+            raise FileNotFoundError(f"LightGBM trees npz file not found at {npz_path}")
     return _LGBM_MODEL
 
 def get_numpy_cnn_model():
@@ -82,7 +127,7 @@ def generate_false_color_patch_base64(feature_dict: Dict[str, Any], predicted_cl
     b64_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
     return f"data:image/png;base64,{b64_str}"
 
-def compute_lightgbm_shap_factors(lgb_model: lgb.Booster, feature_values: List[float], predicted_class_idx: int) -> List[Dict[str, Any]]:
+def compute_lightgbm_shap_factors(lgb_model: NumpyLGBMForwardPass, feature_values: List[float], predicted_class_idx: int) -> List[Dict[str, Any]]:
     """
     Computes top 5 feature importance factors using LightGBM's native gain importance.
     Fast (<0.1ms), serverless-optimized, and eliminates 500MB+ dependencies.

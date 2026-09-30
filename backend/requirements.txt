@@ -8,7 +8,6 @@ sqlalchemy>=2.0.28
 geoalchemy2>=0.14.4
 shapely>=2.0.3
 h3>=3.7.2,<4.0.0
-lightgbm>=4.3.0
 numpy>=1.26.4,<2.0.0
 pillow>=10.2.0
 requests>=2.31.0
