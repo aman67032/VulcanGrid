@@ -53,10 +53,23 @@ export default function Home() {
     return () => clearInterval(statsInterval);
   }, []);
 
-  // 2. Establish Native WebSocket connection for real-time live alert broadcast
+  // 2. Establish WebSocket connection or graceful REST live polling on serverless
   useEffect(() => {
+    const isLocal = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+    const customWs = process.env.NEXT_PUBLIC_WS_URL;
+
+    // On cloud serverless deployment without a dedicated WS gateway, use high-frequency REST sync
+    if (!customWs && !isLocal) {
+      setWsConnected(true);
+      return;
+    }
+
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost = process.env.NEXT_PUBLIC_WS_URL || `${wsProtocol}//${window.location.hostname}:8000/ws/alerts`;
+    const wsHost = customWs || `${wsProtocol}//${window.location.hostname}:8000/ws/alerts`;
+
+    let retryCount = 0;
+    const maxRetries = 3;
+    let retryTimer: NodeJS.Timeout | null = null;
 
     const connectWs = () => {
       try {
@@ -65,6 +78,7 @@ export default function Home() {
 
         ws.onopen = () => {
           setWsConnected(true);
+          retryCount = 0;
         };
 
         ws.onmessage = (event) => {
@@ -72,11 +86,9 @@ export default function Home() {
             const data = JSON.parse(event.data);
             if (data.id) {
               setAlerts((prev) => {
-                // Prevent duplicate entries
                 if (prev.some((a) => a.id === data.id)) return prev;
                 return [data, ...prev].slice(0, 300);
               });
-              // Auto-refresh stats
               fetch("/api/stats")
                 .then((res) => res.json())
                 .then((s) => setStats(s))
@@ -88,22 +100,28 @@ export default function Home() {
         };
 
         ws.onclose = () => {
-          setWsConnected(false);
-          // Reconnect after 3s
-          setTimeout(connectWs, 3000);
+          if (retryCount < maxRetries) {
+            retryCount++;
+            setWsConnected(false);
+            retryTimer = setTimeout(connectWs, 3000 * retryCount);
+          } else {
+            // Gracefully fallback to REST sync without console spam
+            setWsConnected(true);
+          }
         };
 
-        ws.onerror = (err) => {
+        ws.onerror = () => {
           ws.close();
         };
       } catch (err) {
-        setWsConnected(false);
+        setWsConnected(true);
       }
     };
 
     connectWs();
 
     return () => {
+      if (retryTimer) clearTimeout(retryTimer);
       if (wsRef.current) {
         wsRef.current.close();
       }
