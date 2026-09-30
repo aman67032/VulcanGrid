@@ -7,8 +7,7 @@ import lightgbm as lgb
 from typing import Dict, Any, List
 from PIL import Image
 
-from app.config import settings
-from ml.dataset_generator import CLASS_MAP, FEATURE_NAMES
+from app.constants import CLASS_MAP, FEATURE_NAMES
 from ml.cnn_model import NumpyCNNForwardPass
 
 # Cache models in memory
@@ -16,8 +15,10 @@ _LGBM_MODEL = None
 _NUMPY_CNN_MODEL = None
 
 # Model directory lookup for Vercel serverless environment
-MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../models"))
+# From app/services/ -> ../../models -> backend/models/
+MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../models"))
 if not os.path.exists(os.path.join(MODELS_DIR, "lgbm_model.txt")):
+    # Fallback: repo root models/ (for Docker volume mount)
     MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models"))
 
 def get_lgbm_model():

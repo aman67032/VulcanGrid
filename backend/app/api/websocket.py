@@ -28,10 +28,6 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 @router.websocket("/ws/alerts")
-def websocket_alerts_endpoint(websocket: WebSocket):
-    pass
-
-@router.websocket("/ws/alerts")
 async def websocket_alerts(websocket: WebSocket):
     """
     Subscribes to Redis 'alerts_channel' and streams live classified hotspot alerts to connected clients.
