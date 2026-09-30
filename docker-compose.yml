@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: vulcangrid-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vulcan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vulcan_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-vulcangrid}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/app/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./data/seed/seed_data.sql:/docker-entrypoint-initdb.d/02_seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vulcan} -d ${POSTGRES_DB:-vulcangrid}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: vulcangrid-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vulcangrid-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    environment:
+      - DEMO_MODE=${DEMO_MODE:-true}
+      - FIRMS_MAP_KEY=${FIRMS_MAP_KEY:-demo_key}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-vulcan}:${POSTGRES_PASSWORD:-vulcan_pass}@postgres:5432/${POSTGRES_DB:-vulcangrid}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+      - ./models:/app/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vulcangrid-worker
+    command: celery -A app.workers.celery_app worker --loglevel=info -B
+    environment:
+      - DEMO_MODE=${DEMO_MODE:-true}
+      - FIRMS_MAP_KEY=${FIRMS_MAP_KEY:-demo_key}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-vulcan}:${POSTGRES_PASSWORD:-vulcan_pass}@postgres:5432/${POSTGRES_DB:-vulcangrid}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+      - ./models:/app/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vulcangrid-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      - VITE_WS_URL=ws://localhost:8000/ws/alerts
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
