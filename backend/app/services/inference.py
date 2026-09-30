@@ -3,7 +3,6 @@ import io
 import time
 import base64
 import numpy as np
-import torch
 import lightgbm as lgb
 import shap
 import matplotlib.pyplot as plt
@@ -12,12 +11,12 @@ from PIL import Image
 
 from app.config import settings
 from ml.dataset_generator import CLASS_MAP, FEATURE_NAMES
-from ml.cnn_model import HotspotPatchCNN
+from ml.cnn_model import NumpyCNNForwardPass
 
 # Cache models in memory
 _LGBM_MODEL = None
 _SHAP_EXPLAINER = None
-_CNN_MODEL = None
+_NUMPY_CNN_MODEL = None
 
 MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models"))
 
@@ -32,15 +31,15 @@ def get_lgbm_model():
             raise FileNotFoundError(f"LightGBM model file not found at {model_path}")
     return _LGBM_MODEL, _SHAP_EXPLAINER
 
-def get_cnn_model():
-    global _CNN_MODEL
-    if _CNN_MODEL is None:
-        model_path = os.path.join(MODELS_DIR, "cnn_model.pt")
-        _CNN_MODEL = HotspotPatchCNN(num_classes=4)
-        if os.path.exists(model_path):
-            _CNN_MODEL.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-        _CNN_MODEL.eval()
-    return _CNN_MODEL
+def get_numpy_cnn_model():
+    global _NUMPY_CNN_MODEL
+    if _NUMPY_CNN_MODEL is None:
+        npz_path = os.path.join(MODELS_DIR, "cnn_weights.npz")
+        if os.path.exists(npz_path):
+            _NUMPY_CNN_MODEL = NumpyCNNForwardPass.load_from_npz(npz_path)
+        else:
+            raise FileNotFoundError(f"CNN compressed weights file not found at {npz_path}")
+    return _NUMPY_CNN_MODEL
 
 def generate_false_color_patch_base64(feature_dict: Dict[str, Any], predicted_class: str) -> str:
     """
@@ -77,7 +76,6 @@ def generate_false_color_patch_base64(feature_dict: Dict[str, Any], predicted_cl
     rgb_uint8 = (rgb * 255.0).astype(np.uint8)
 
     img = Image.fromarray(rgb_uint8, mode='RGB')
-    # Resize to 128x128 for crisp UI thumbnail display
     img_resized = img.resize((128, 128), Image.Resampling.NEAREST)
 
     buffer = io.BytesIO()
@@ -123,26 +121,21 @@ def run_hotspot_inference(
     # Tier 2 Routing: If max prob < 0.85 -> Tier 2 CNN validation
     if max_prob < 0.85:
         tier_used = 2
-        cnn_model = get_cnn_model()
-        # Generate synthetic 4-channel patch for CNN input
+        cnn_model = get_numpy_cnn_model()
         patch_size = 32
-        patch_4c = np.zeros((1, 4, patch_size, patch_size), dtype=np.float32)
+        patch_4c = np.zeros((4, patch_size, patch_size), dtype=np.float32)
 
         swir = np.random.normal(0.15, 0.03, (patch_size, patch_size))
         nir = np.random.normal(0.35, 0.05, (patch_size, patch_size))
         red = np.random.normal(0.10, 0.02, (patch_size, patch_size))
         nbr = (nir - swir) / (nir + swir + 1e-6)
 
-        patch_4c[0, 0] = swir
-        patch_4c[0, 1] = nir
-        patch_4c[0, 2] = red
-        patch_4c[0, 3] = nbr
+        patch_4c[0] = swir
+        patch_4c[1] = nir
+        patch_4c[2] = red
+        patch_4c[3] = nbr
 
-        with torch.no_grad():
-            cnn_logits = cnn_model(torch.tensor(patch_4c, dtype=torch.float32))
-            cnn_probs = torch.softmax(cnn_logits, dim=1).numpy()[0]
-
-        # Blend probabilities (70% CNN + 30% LightGBM)
+        cnn_probs = cnn_model.forward(patch_4c)
         blended_probs = 0.7 * cnn_probs + 0.3 * probs
         final_class_idx = int(np.argmax(blended_probs))
         final_probs = blended_probs
@@ -152,13 +145,11 @@ def run_hotspot_inference(
 
     # Compute SHAP Values for top 5 factors
     shap_vals = explainer.shap_values(X_input)
-    # Handle SHAP multi-class format
     if isinstance(shap_vals, list):
         class_shap = shap_vals[final_class_idx][0]
     else:
         class_shap = shap_vals[0, :, final_class_idx] if len(shap_vals.shape) == 3 else shap_vals[0]
 
-    # Top 5 SHAP features sorted by absolute magnitude
     abs_indices = np.argsort(np.abs(class_shap))[::-1][:5]
 
     shap_explanations = []
@@ -174,7 +165,6 @@ def run_hotspot_inference(
             "impact": impact
         })
 
-    # Render false-colour PNG patch base64
     patch_b64 = generate_false_color_patch_base64(
         {FEATURE_NAMES[i]: feature_values[i] for i in range(len(FEATURE_NAMES))},
         predicted_class
