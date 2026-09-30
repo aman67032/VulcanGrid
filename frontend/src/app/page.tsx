@@ -155,6 +155,8 @@ export default function Home() {
         wsConnected={wsConnected}
         selectedClassFilter={selectedClassFilter}
         onSelectClassFilter={setSelectedClassFilter}
+        onSync={handleSync}
+        isSyncing={isSyncing}
       />
 
       {/* Main Workspace Grid: Live Map + Sidebar */}
