@@ -24,8 +24,21 @@ export default function Home() {
   const [selectedClassFilter, setSelectedClassFilter] = useState<string>("ALL");
   const [showPlume, setShowPlume] = useState<boolean>(false);
   const [wsConnected, setWsConnected] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   const wsRef = useRef<WebSocket | null>(null);
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      await fetch("/api/sync-firms", { method: "POST" });
+      fetchInitialData();
+    } catch (err) {
+      console.error("Error triggering satellite sync:", err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // 1. Fetch initial alerts & stats via REST
   const fetchInitialData = () => {

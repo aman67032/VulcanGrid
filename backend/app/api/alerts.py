@@ -182,6 +182,7 @@ def get_stats(db: Session = Depends(get_db)):
         class_counts.setdefault(expected_cls, 0)
 
     avg_latency = db.query(func.avg(Alert.latency_ms)).scalar() or 0.0
+    is_demo = bool(settings.DEMO_MODE or settings.FIRMS_MAP_KEY in ["demo_key", "", None])
 
     return {
         "total_alerts": total_alerts,
@@ -189,8 +190,48 @@ def get_stats(db: Session = Depends(get_db)):
         "skipped_hotspots": skipped_hotspots,
         "pct_cells_skipped": round(pct_skipped, 2),
         "avg_latency_ms": round(float(avg_latency), 2),
-        "class_counts": class_counts
+        "class_counts": class_counts,
+        "demo_mode": is_demo
     }
+
+@router.post("/sync-firms")
+def sync_firms_now(db: Session = Depends(get_db)):
+    """
+    Triggers live satellite ingestion.
+    Fetches real NASA VIIRS data if FIRMS_MAP_KEY is set and DEMO_MODE is False;
+    otherwise generates a fresh batch of synthetic hotspots.
+    """
+    from app.services.firms_ingest import fetch_live_firms_data, generate_synthetic_firms_batch
+    is_demo = bool(settings.DEMO_MODE or settings.FIRMS_MAP_KEY in ["demo_key", "", None])
+
+    if is_demo:
+        batch = generate_synthetic_firms_batch(count=5)
+    else:
+        batch = fetch_live_firms_data()
+
+    created_alerts = []
+    for item in batch:
+        res = process_hotspot_item(item)
+        if res.get("status") == "alert_created":
+            created_alerts.append(res.get("alert_id"))
+
+    return {
+        "status": "success",
+        "demo_mode": is_demo,
+        "items_ingested": len(batch),
+        "alerts_created": len(created_alerts),
+        "alert_ids": created_alerts
+    }
+
+@router.post("/alerts/clear")
+def clear_alerts(db: Session = Depends(get_db)):
+    """
+    Clears previous alerts and hotspots to start fresh with new satellite observations.
+    """
+    db.query(Alert).delete()
+    db.query(Hotspot).delete()
+    db.commit()
+    return {"status": "cleared"}
 
 @router.get("/plume/{alert_id}")
 def get_plume_polygon(alert_id: str, db: Session = Depends(get_db)):

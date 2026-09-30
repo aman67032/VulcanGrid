@@ -39,6 +39,7 @@ export interface StatsData {
   pct_cells_skipped: number;
   avg_latency_ms: number;
   class_counts: Record<HotspotClass, number>;
+  demo_mode?: boolean;
 }
 
 export interface FacilityFeature {

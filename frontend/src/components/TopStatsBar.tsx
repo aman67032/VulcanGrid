@@ -8,6 +8,8 @@ interface TopStatsBarProps {
   wsConnected: boolean;
   selectedClassFilter: string;
   onSelectClassFilter: (cls: string) => void;
+  onSync?: () => void;
+  isSyncing?: boolean;
 }
 
 export const TopStatsBar: React.FC<TopStatsBarProps> = ({
@@ -15,6 +17,8 @@ export const TopStatsBar: React.FC<TopStatsBarProps> = ({
   wsConnected,
   selectedClassFilter,
   onSelectClassFilter,
+  onSync,
+  isSyncing = false,
 }) => {
   const classCounts = stats?.class_counts || {
     controlled_flare: 0,
@@ -22,6 +26,8 @@ export const TopStatsBar: React.FC<TopStatsBarProps> = ({
     forest_fire: 0,
     false_alarm: 0,
   };
+
+  const isDemoMode = stats?.demo_mode !== false;
 
   return (
     <header className="h-16 bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between text-xs sm:text-sm select-none z-20 shrink-0">
@@ -41,12 +47,47 @@ export const TopStatsBar: React.FC<TopStatsBarProps> = ({
             }`}
           />
           <span className={wsConnected ? "text-emerald-400 font-semibold" : "text-amber-400"}>
-            {wsConnected ? "LIVE STREAM" : "RECONNECTING"}
+            {wsConnected ? "LIVE STREAM" : "CONNECTING"}
           </span>
         </div>
-        <span className="hidden md:inline-block px-2 py-0.5 rounded text-[11px] font-mono bg-slate-800 text-slate-400 border border-slate-700">
-          DEMO_MODE=true
-        </span>
+
+        {/* Dynamic Mode Badge */}
+        {isDemoMode ? (
+          <span className="hidden md:inline-flex items-center space-x-1.5 px-2 py-0.5 rounded text-[11px] font-mono bg-amber-950/60 text-amber-300 border border-amber-800/80">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+            <span>DEMO STREAM</span>
+          </span>
+        ) : (
+          <span className="hidden md:inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded text-[11px] font-mono bg-emerald-950/80 text-emerald-300 border border-emerald-700/80 shadow-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>NASA VIIRS LIVE</span>
+          </span>
+        )}
+
+        {/* Sync Satellite Trigger */}
+        {onSync && (
+          <button
+            onClick={onSync}
+            disabled={isSyncing}
+            title={isDemoMode ? "Generate fresh synthetic satellite batch" : "Fetch latest real-time observations from NASA VIIRS"}
+            className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-700 text-slate-200 text-xs font-mono transition-all disabled:opacity-50 cursor-pointer"
+          >
+            <svg
+              className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-blue-400" : "text-slate-400"}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            <span>{isSyncing ? "Syncing..." : "Sync FIRMS"}</span>
+          </button>
+        )}
       </div>
 
       {/* Metrics Row */}
