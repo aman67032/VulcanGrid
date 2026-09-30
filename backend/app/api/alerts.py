@@ -4,8 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from shapely.wkb import loads as load_wkb
-from shapely.geometry import mapping
 
 from app.db.session import get_db
 from app.db.models import Alert, Hotspot, Facility
@@ -31,14 +29,20 @@ class IngestBatchRequest(BaseModel):
 @router.post("/ingest")
 def ingest_hotspots(payload: IngestBatchRequest):
     """
-    Accepts hotspot batches and queues Celery pipeline for feature engineering & AI classification.
+    Accepts hotspot batches. Queues Celery or executes directly for Serverless environment (Vercel).
     """
     task_ids = []
     for item in payload.hotspots:
         item_dict = item.dict()
-        res = process_hotspot_item.delay(item_dict)
-        task_ids.append(res.id)
-    return {"status": "queued", "count": len(task_ids), "task_ids": task_ids}
+        try:
+            # Try queuing via Celery
+            res = process_hotspot_item.delay(item_dict)
+            task_ids.append(res.id)
+        except Exception:
+            # Serverless fallback: process synchronously right inside request handler
+            res_dict = process_hotspot_item(item_dict)
+            task_ids.append(res_dict.get("alert_id", "sync-processed"))
+    return {"status": "processed", "count": len(task_ids), "task_ids": task_ids}
 
 @router.get("/alerts")
 def get_alerts(
