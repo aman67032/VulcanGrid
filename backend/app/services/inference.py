@@ -15,7 +15,10 @@ from ml.cnn_model import NumpyCNNForwardPass
 _LGBM_MODEL = None
 _NUMPY_CNN_MODEL = None
 
-MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models"))
+# Model directory lookup for Vercel serverless environment
+MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../models"))
+if not os.path.exists(os.path.join(MODELS_DIR, "lgbm_model.txt")):
+    MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models"))
 
 def get_lgbm_model():
     global _LGBM_MODEL
@@ -67,7 +70,6 @@ def generate_false_color_patch_base64(feature_dict: Dict[str, Any], predicted_cl
     nir = np.clip(nir, 0, 1.0)
     red = np.clip(red, 0, 1.0)
 
-    # Stack into RGB array: R=SWIR, G=NIR, B=Red
     rgb = np.stack([swir, nir, red], axis=-1)
     rgb_uint8 = (rgb * 255.0).astype(np.uint8)
 
@@ -82,13 +84,12 @@ def generate_false_color_patch_base64(feature_dict: Dict[str, Any], predicted_cl
 def compute_lightgbm_shap_factors(lgb_model: lgb.Booster, feature_values: List[float], predicted_class_idx: int) -> List[Dict[str, Any]]:
     """
     Computes top 5 feature importance factors using LightGBM's native gain importance.
-    Fast (<0.1ms), serverless-optimized, and eliminates 500MB+ dependencies (shap/numba/llvmlite).
+    Fast (<0.1ms), serverless-optimized, and eliminates 500MB+ dependencies.
     """
     importance = lgb_model.feature_importance(importance_type='gain')
     total_gain = np.sum(importance) if np.sum(importance) > 0 else 1.0
     normalized_importance = importance / total_gain
 
-    # Sort top 5 features by importance gain
     top_indices = np.argsort(importance)[::-1][:5]
 
     explanations = []
@@ -97,7 +98,6 @@ def compute_lightgbm_shap_factors(lgb_model: lgb.Booster, feature_values: List[f
         val = feature_values[idx]
         imp_score = float(normalized_importance[idx])
 
-        # Directional impact heuristic based on feature domain logic
         if feat_name in ["frp", "brightness", "inside_facility", "persistence_7d"]:
             impact = "push_towards"
             s_val = round(imp_score * 2.5, 4)
@@ -145,9 +145,8 @@ def run_hotspot_inference(
     ]
     X_input = np.array([feature_values], dtype=np.float32)
 
-    # Tier 1: LightGBM Fast Triage
     lgb_model = get_lgbm_model()
-    probs = lgb_model.predict(X_input)[0]  # Array of 4 probabilities
+    probs = lgb_model.predict(X_input)[0]
 
     pred_idx = int(np.argmax(probs))
     max_prob = float(probs[pred_idx])
@@ -156,7 +155,6 @@ def run_hotspot_inference(
     final_class_idx = pred_idx
     final_probs = probs
 
-    # Tier 2 Routing: If max prob < 0.85 -> Tier 2 CNN validation
     if max_prob < 0.85:
         tier_used = 2
         cnn_model = get_numpy_cnn_model()
@@ -181,7 +179,6 @@ def run_hotspot_inference(
     predicted_class = CLASS_MAP[final_class_idx]
     overall_confidence = float(final_probs[final_class_idx])
 
-    # Compute Feature Importance SHAP Explanations
     shap_explanations = compute_lightgbm_shap_factors(lgb_model, feature_values, final_class_idx)
 
     patch_b64 = generate_false_color_patch_base64(
