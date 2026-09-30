@@ -10,10 +10,13 @@ app = FastAPI(
 )
 
 origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+if "https://frontend-three-ruddy-fpb7kkoydz.vercel.app" not in origins:
+    origins.append("https://frontend-three-ruddy-fpb7kkoydz.vercel.app")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins if origins else ["*"],
+    allow_origin_regex=r"^https:\/\/.*\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

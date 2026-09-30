@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     FIRMS_MAP_KEY: str = os.getenv("FIRMS_MAP_KEY", "demo_key")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://vulcan:vulcan_pass@localhost:5432/vulcangrid")
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000,https://frontend-three-ruddy-fpb7kkoydz.vercel.app")
 
     class Config:
         # Check both local folder and parent folder for .env file during local dev
