@@ -9,7 +9,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
 
     class Config:
-        env_file = ".env"
+        # Check both local folder and parent folder for .env file during local dev
+        env_file = (".env", "../.env")
         extra = "ignore"
 
 settings = Settings()
