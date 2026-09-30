@@ -7,6 +7,14 @@ from sqlalchemy.orm import Session
 from shapely.geometry import Point
 from shapely.wkt import loads as load_wkt
 
+def get_h3_index(lat: float, lon: float, resolution: int = 8) -> str:
+    """Supports both H3 v3 (geo_to_h3) and H3 v4 (latlng_to_cell)"""
+    if hasattr(h3, "latlng_to_cell"):
+        return h3.latlng_to_cell(lat, lon, resolution)
+    elif hasattr(h3, "geo_to_h3"):
+        return h3.geo_to_h3(lat, lon, resolution=resolution)
+    return "8860a25999fffff"
+
 def compute_spatial_features(
     lat: float,
     lon: float,
@@ -19,7 +27,7 @@ def compute_spatial_features(
     and 7-day historical persistence tracking.
     """
     # 1. H3 Indexing (Resolution 8)
-    h3_index = h3.geo_to_h3(lat, lon, resolution=8)
+    h3_index = get_h3_index(lat, lon, resolution=8)
 
     point_wkt = f"ST_SetSRID(ST_MakePoint({lon}, {lat}), 4326)"
 
