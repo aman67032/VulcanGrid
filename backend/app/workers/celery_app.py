@@ -44,7 +44,6 @@ def process_hotspot_item(item: dict) -> dict:
     5. Save to PostGIS (Neon DB) & publish live alert to Redis channel
     """
     db = SessionLocal()
-    r = get_redis_client()
     try:
         acq_dt = datetime.fromisoformat(item["acq_datetime"].replace("Z", "+00:00"))
         lat = item["latitude"]
@@ -146,25 +145,30 @@ def process_hotspot_item(item: dict) -> dict:
         db.commit()
         db.refresh(alert_rec)
 
-        # 5. Broadcast to Redis Channel for Live WebSocket streaming
-        alert_payload = {
-            "id": str(alert_rec.id),
-            "firms_id": alert_rec.firms_id,
-            "latitude": lat,
-            "longitude": lon,
-            "h3_index": h3_idx,
-            "frp": frp,
-            "brightness": item["brightness"],
-            "confidence": item.get("confidence", 80.0),
-            "acq_datetime": acq_dt.isoformat(),
-            "predicted_class": pred_class,
-            "class_probs": inf_res["class_probs"],
-            "tier_used": inf_res["tier_used"],
-            "overall_confidence": inf_res["overall_confidence"],
-            "latency_ms": inf_res["latency_ms"],
-            "created_at": alert_rec.created_at.isoformat()
-        }
-        r.publish("alerts_channel", json.dumps(alert_payload))
+        # 5. Broadcast to Redis Channel for Live WebSocket streaming (if Redis is available)
+        try:
+            r = get_redis_client()
+            alert_payload = {
+                "id": str(alert_rec.id),
+                "firms_id": alert_rec.firms_id,
+                "latitude": lat,
+                "longitude": lon,
+                "h3_index": h3_idx,
+                "frp": frp,
+                "brightness": item["brightness"],
+                "confidence": item.get("confidence", 80.0),
+                "acq_datetime": acq_dt.isoformat(),
+                "predicted_class": pred_class,
+                "class_probs": inf_res["class_probs"],
+                "tier_used": inf_res["tier_used"],
+                "overall_confidence": inf_res["overall_confidence"],
+                "latency_ms": inf_res["latency_ms"],
+                "created_at": alert_rec.created_at.isoformat()
+            }
+            r.publish("alerts_channel", json.dumps(alert_payload))
+        except Exception as redis_err:
+            # Non-fatal on serverless deployments without Redis instance
+            pass
 
         db.close()
         return {"status": "alert_created", "alert_id": str(alert_rec.id), "class": pred_class}
@@ -185,6 +189,9 @@ def periodic_firms_ingest():
         batch = fetch_live_firms_data()
 
     for item in batch:
-        process_hotspot_item.delay(item)
+        try:
+            process_hotspot_item.delay(item)
+        except Exception:
+            process_hotspot_item(item)
 
     return {"ingested_count": len(batch)}

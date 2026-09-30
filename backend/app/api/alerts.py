@@ -1,3 +1,4 @@
+import os
 from typing import List, Optional
 import json
 from datetime import datetime
@@ -6,10 +7,27 @@ from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
+from app.config import settings
 from app.db.session import get_db
 from app.db.models import Alert, Hotspot, Facility
 from app.workers.celery_app import process_hotspot_item
 from app.services.plume import calculate_gaussian_plume_polygon
+
+def check_and_seed_demo_data(db: Session):
+    """
+    If DEMO_MODE is true and the database has 0 alerts, auto-seed an initial batch
+    so that frontend dashboards, live maps, and statistics are immediately populated.
+    """
+    if getattr(settings, "DEMO_MODE", True):
+        alert_count = db.query(func.count(Alert.id)).scalar() or 0
+        if alert_count == 0:
+            try:
+                from app.services.firms_ingest import generate_synthetic_firms_batch
+                batch = generate_synthetic_firms_batch(count=15)
+                for item in batch:
+                    process_hotspot_item(item)
+            except Exception as e:
+                print(f"[Demo Seed Error] {e}")
 
 router = APIRouter(prefix="", tags=["Alerts & Analytics"])
 
@@ -33,16 +51,20 @@ def ingest_hotspots(payload: IngestBatchRequest):
     Accepts hotspot batches. Queues Celery or executes directly for Serverless environment (Vercel).
     """
     task_ids = []
+    is_serverless = bool(os.environ.get("VERCEL") or "localhost" in settings.REDIS_URL)
+
     for item in payload.hotspots:
         item_dict = item.dict()
-        try:
-            # Try queuing via Celery
-            res = process_hotspot_item.delay(item_dict)
-            task_ids.append(res.id)
-        except Exception:
-            # Serverless fallback: process synchronously right inside request handler
+        if is_serverless:
             res_dict = process_hotspot_item(item_dict)
             task_ids.append(res_dict.get("alert_id", "sync-processed"))
+        else:
+            try:
+                res = process_hotspot_item.delay(item_dict)
+                task_ids.append(res.id)
+            except Exception:
+                res_dict = process_hotspot_item(item_dict)
+                task_ids.append(res_dict.get("alert_id", "sync-processed"))
     return {"status": "processed", "count": len(task_ids), "task_ids": task_ids}
 
 @router.get("/alerts")
@@ -57,6 +79,7 @@ def get_alerts(
     """
     Retrieves classified alerts with spatial, time, and class filtering.
     """
+    check_and_seed_demo_data(db)
     query = db.query(Alert)
 
     if predicted_class:
@@ -145,6 +168,7 @@ def get_stats(db: Session = Depends(get_db)):
     """
     Returns total alerts, per-class counts, average inference latency, and % H3 cells skipped.
     """
+    check_and_seed_demo_data(db)
     total_alerts = db.query(func.count(Alert.id)).scalar() or 0
     total_hotspots = db.query(func.count(Hotspot.id)).scalar() or 0
     skipped_hotspots = db.query(func.count(Hotspot.id)).filter(Hotspot.skipped == True).scalar() or 0
