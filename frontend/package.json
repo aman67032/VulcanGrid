@@ -9,12 +9,15 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "chart.js": "^4.5.1",
     "clsx": "^2.1.0",
+    "framer-motion": "^13.4.6",
     "h3-js": "^3.7.2",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.359.0",
     "next": "^14.1.4",
     "react": "^18.2.0",
+    "react-chartjs-2": "^5.3.1",
     "react-dom": "^18.2.0",
     "react-leaflet": "^4.2.1",
     "recharts": "^2.12.3",

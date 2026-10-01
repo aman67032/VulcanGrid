@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api import health, alerts, websocket
+from app.api import health, alerts, websocket, tactical
 
 app = FastAPI(
     title="VulcanGrid Thermal Hotspot Classifier API",
@@ -25,6 +25,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(alerts.router)
 app.include_router(websocket.router)
+app.include_router(tactical.router)
 
 @app.get("/")
 def root():
