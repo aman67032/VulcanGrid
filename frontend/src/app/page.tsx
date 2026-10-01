@@ -148,6 +148,7 @@ export default function Home() {
   const [currentTimeUTC, setCurrentTimeUTC] = useState("");
   const [baselineImagery, setBaselineImagery] = useState<any>(null);
   const [wsConnected, setWsConnected] = useState(true);
+  const [defaultBasemap, setDefaultBasemap] = useState<"satellite" | "dark">("satellite");
 
   // What-If Sandbox State
   const [whatIfMode, setWhatIfMode] = useState(false);
@@ -187,9 +188,26 @@ export default function Home() {
     }
   };
 
-  // Load default baseline on startup
+  // Load default baseline or incident mode on startup based on query params
   useEffect(() => {
-    triggerBaselineProof(CORPORATE_FACILITIES[0].key);
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const facKey = params.get("facility") || CORPORATE_FACILITIES[0].key;
+      const foundFac = CORPORATE_FACILITIES.find(f => f.key === facKey) || CORPORATE_FACILITIES[0];
+      setSelectedFacility(foundFac);
+      if (params.get("dark") === "true") {
+        setDefaultBasemap("dark");
+      }
+      if (params.get("incident") === "true") {
+        triggerIncidentInjection(foundFac.key);
+      } else {
+        const isWhatIf = params.get("whatif") === "true";
+        if (isWhatIf) setWhatIfMode(true);
+        triggerBaselineProof(foundFac.key, isWhatIf);
+      }
+    } else {
+      triggerBaselineProof(CORPORATE_FACILITIES[0].key);
+    }
     fetchLiveFirmsData();
   }, []);
 
@@ -200,9 +218,9 @@ export default function Home() {
   };
 
   // 1. Baseline Operational Proof
-  const triggerBaselineProof = async (facilityKey: string = selectedFacility.key) => {
+  const triggerBaselineProof = async (facilityKey: string = selectedFacility.key, keepWhatIf = false) => {
     setLoading(true);
-    setWhatIfMode(false);
+    if (!keepWhatIf) setWhatIfMode(false);
     playRadarPing();
     setCurrentTimelineStage(0);
     try {
@@ -491,6 +509,7 @@ export default function Home() {
               plumeData={activeScenario?.plume_dispersion}
               liveWeather={activeScenario?.live_weather}
               liveFirmsData={showFirms ? liveFirmsData : null}
+              defaultBasemap={defaultBasemap}
               onSelectFacility={(fac) => {
                 setSelectedFacility(fac);
                 triggerBaselineProof(fac.key);

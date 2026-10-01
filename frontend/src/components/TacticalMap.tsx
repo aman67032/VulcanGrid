@@ -24,6 +24,7 @@ interface TacticalMapProps {
   liveFirmsData?: Array<{lat: number, lon: number, frp: number, confidence: string}> | null;
   onSelectFacility?: (facility: CorporateFacility) => void;
   onFirmsClick?: (point: {lat: number, lon: number, frp: number}) => void;
+  defaultBasemap?: 'satellite' | 'dark';
 }
 
 export const TacticalMap: React.FC<TacticalMapProps> = ({ 
@@ -34,15 +35,15 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
   liveWeather,
   liveFirmsData,
   onSelectFacility,
-  onFirmsClick
+  onFirmsClick,
+  defaultBasemap = 'satellite'
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const plumeLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const targetMarkerRef = useRef<L.CircleMarker | null>(null);
-  const [basemapMode, setBasemapMode] = useState<'satellite' | 'dark'>('satellite');
-
+  const [basemapMode, setBasemapMode] = useState<'satellite' | 'dark'>(defaultBasemap);
 
   // Initialize Map
   useEffect(() => {
@@ -55,11 +56,20 @@ export const TacticalMap: React.FC<TacticalMapProps> = ({
       attributionControl: false,
     });
 
-    // Default: ESRI High-Resolution World Imagery (100% Free, Zero API Keys, Zero Watermarks)
-    const initialTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 19,
-    }).addTo(map);
-    tileLayerRef.current = initialTile;
+    if (defaultBasemap === 'dark') {
+      mapContainerRef.current.classList.add('leaflet-tactical-dark');
+      const darkTile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        subdomains: ['a', 'b', 'c'],
+      }).addTo(map);
+      tileLayerRef.current = darkTile;
+    } else {
+      // Default: ESRI High-Resolution World Imagery (100% Free, Zero API Keys, Zero Watermarks)
+      const initialTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+      }).addTo(map);
+      tileLayerRef.current = initialTile;
+    }
 
     L.control.zoom({ position: 'topright' }).addTo(map);
 

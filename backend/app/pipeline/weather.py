@@ -116,20 +116,16 @@ def compute_pasquill_gifford_stability(wind_speed_m_s: float, solar_radiation_w_
             elif w <= 5: return "E", "Slightly Stable (Clear sky, moderate wind)"
             else: return "D", "Neutral (Clear sky, strong wind)"
 
-from fastapi_cache.decorator import cache
-
-@cache(expire=600)  # 10 minutes cache
 async def get_facility_weather(facility_key: str) -> Dict[str, Any]:
     """
-    Gets real-time weather data and stability class for a facility.
-    Wrapped in Redis cache via fastapi-cache2 decorator.
-    
-    Args:
-        facility_key (str): The unique identifier for the facility.
-        
-    Returns:
-        Dict[str, Any]: A dictionary containing live weather and stability data.
+    Gets real-time weather data and stability class for a facility with in-memory caching.
     """
+    now = time.time()
+    if facility_key in _weather_cache:
+        exp, cached = _weather_cache[facility_key]
+        if now < exp:
+            return cached
+
     facility = DEMO_FACILITIES.get(facility_key)
     if not facility:
         raise ValueError(f"Facility {facility_key} not found")

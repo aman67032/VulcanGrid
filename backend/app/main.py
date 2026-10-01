@@ -26,6 +26,7 @@ app.include_router(health.router)
 app.include_router(alerts.router)
 app.include_router(websocket.router)
 app.include_router(tactical.router)
+app.include_router(tactical.router, prefix="/api")
 
 @app.get("/")
 def root():

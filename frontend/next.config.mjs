@@ -1,9 +1,9 @@
 /** @type {import('next').NextConfig} */
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'production' || process.env.VERCEL
+  (process.env.VERCEL
     ? 'https://backend-eta-steel-90.vercel.app'
-    : 'http://localhost:8000');
+    : 'http://127.0.0.1:8000');
 
 const nextConfig = {
   reactStrictMode: true,

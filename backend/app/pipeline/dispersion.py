@@ -112,8 +112,13 @@ def generate_plume_hazard_cone(
     max_downwind_km: float = 12.0,
     stability_class: str = 'D',
     cnn_fire_area_m2: float = 0.0,
-    frp_mw: float = 0.0
+    frp_mw: float = 0.0,
+    q_emission_rate_g_s: float = None,
+    chemical_type: str = "GENERIC",
+    **kwargs
 ) -> Dict[str, Any]:
+    if q_emission_rate_g_s is not None:
+        emission_rate_g_s = q_emission_rate_g_s
     """
     Computes a multi-tiered GeoJSON FeatureCollection with 3 concentric hazard contours:
       - Zone 1 (Red): Immediate Lethal Zone (IDLH)
